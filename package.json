@@ -1,0 +1,24 @@
+{
+  "name": "mastra-app",
+  "version": "1.0.0",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "mastra dev"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "type": "module",
+  "dependencies": {
+    "@mastra/core": "^0.2.0-alpha.92",
+    "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.1",
+    "mastra": "^0.2.0-alpha.149",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3"
+  }
+}

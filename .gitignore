@@ -1,0 +1,6 @@
+output.txt
+node_modules
+dist
+.mastra
+.env
+.env.development
