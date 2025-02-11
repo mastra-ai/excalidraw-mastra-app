@@ -1,4 +1,5 @@
 import { Agent } from "@mastra/core/agent";
+import { anthropic } from "@ai-sdk/anthropic";
 
 export const excalidrawConverterAgent = new Agent({
   name: "Excalidraw Converter",
@@ -43,8 +44,5 @@ The JSON should contain all the necessary properties for each element type:
 - For shapes: dimensions, position, fill and stroke styles
 - For lines/arrows: start and end points, style properties
 - For all elements: unique IDs and version information`,
-  model: {
-    provider: "ANTHROPIC",
-    name: "claude-3-5-sonnet-20241022",
-  },
+  model: anthropic("claude-3-5-sonnet-20241022"),
 });

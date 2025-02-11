@@ -7,19 +7,11 @@ const outputSchema = z.object({
   contents: z.object({}).passthrough(), // Allow any object structure for Excalidraw contents
 });
 
-// Define the conversion step
 const convertImageStep = new Step({
   id: "convertImage",
-  // inputSchema: z.object({
-  //   filename: z.string(),
-  //   file: z.string(),
-  // }),
   outputSchema,
-  execute: async ({ context: { machineContext } }) => {
-    if (
-      !machineContext?.triggerData?.filename ||
-      !machineContext?.triggerData?.file
-    ) {
+  execute: async ({ context }) => {
+    if (!context?.triggerData?.filename || !context?.triggerData?.file) {
       throw new Error("Missing required image data in machine context");
     }
 
@@ -31,7 +23,7 @@ const convertImageStep = new Step({
           content: [
             {
               type: "image",
-              image: machineContext.triggerData.file,
+              image: context.triggerData.file,
             },
             {
               type: "text",
@@ -58,6 +50,5 @@ export const excalidrawConverterWorkflow = new Workflow({
   }),
 });
 
-// Add the step and commit the workflow
 excalidrawConverterWorkflow.step(convertImageStep);
 excalidrawConverterWorkflow.commit();
