@@ -1,9 +1,13 @@
 import { createLogger, Mastra } from "@mastra/core";
-import { excalidrawConverterAgent } from "./agents";
 import { excalidrawConverterWorkflow } from "./workflows";
+import {
+  csvToExcalidrawAgent,
+  imageToCsvAgent,
+  excalidrawValidatorAgent,
+} from "./agents";
 
 export const mastra = new Mastra({
-  agents: { excalidrawConverterAgent },
+  agents: { csvToExcalidrawAgent, imageToCsvAgent, excalidrawValidatorAgent },
   workflows: { excalidrawConverterWorkflow },
   logger: createLogger({
     name: "Whiteboard Excalidraw Converter",
