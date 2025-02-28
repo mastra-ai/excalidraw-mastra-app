@@ -15,7 +15,7 @@ const imageToCsvStep = new Step({
     csv: z.string(),
   }),
   execute: async ({ context }) => {
-    const triggerData = context?.getStepPayload<{
+    const triggerData = context?.getStepResult<{
       filename: string;
       file: string;
     }>("trigger");
@@ -25,59 +25,104 @@ const imageToCsvStep = new Step({
     }
 
     const imageToCsv = mastra.getAgent("imageToCsvAgent");
-    const response = await imageToCsv.generate([
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            image: triggerData.file,
-          },
-          {
-            type: "text",
-            text: `View this image of a whiteboard diagram and convert it into CSV format.`,
-          },
-        ],
-      },
-    ]);
-
-    const response2 = await imageToCsv.generate([
-      {
-        role: "user",
-        content: [
-          {
-            type: "image",
-            image: triggerData.file,
-          },
-          {
-            type: "text",
-            text: `View this image of a whiteboard diagram and convert it into CSV format.`,
-          },
-        ],
-      },
-      {
-        role: "assistant",
-        content: [
-          {
-            type: "text",
-            text: response.text,
-          },
-        ],
-      },
-      {
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `Validate your last response containing the CSV code with the original image and improve the CSV. Make sure to analyze for all the possible elements of the image. Only return the CSV text.`,
-          },
-        ],
-      },
-    ]);
+    const response = await imageToCsv.generate(
+      [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image: triggerData.file,
+            },
+            {
+              type: "text",
+              text: `View this image of a whiteboard diagram and convert it into CSV format. Include all text, lines, arrows, and shapes. Think through all the elements of the image.`,
+            },
+          ],
+        },
+      ],
+      { maxSteps: 10 }
+    );
 
     return {
       filename: `${triggerData.filename.split(".")[0]}.excalidraw`,
-      csv: response2.text,
+      csv: response.text,
+    };
+  },
+});
+
+const validateCsvStep = new Step({
+  id: "validateCsv",
+  inputSchema: z.object({
+    filename: z.string(),
+    csv: z.string(),
+  }),
+  outputSchema: z.object({
+    filename: z.string(),
+    csv: z.string(),
+  }),
+  execute: async ({ context }) => {
+    const csvData = context?.getStepResult<{
+      filename: string;
+      csv: string;
+    }>("imageToCsv");
+
+    const triggerData = context?.getStepResult<{
+      filename: string;
+      file: string;
+    }>("trigger");
+
+    if (!csvData?.filename || !csvData?.csv) {
+      throw new Error("Missing required CSV data in context");
+    }
+
+    if (!triggerData?.file) {
+      throw new Error("Missing required image data in context");
+    }
+
+    const imageToCsv = mastra.getAgent("imageToCsvAgent");
+    const response = await imageToCsv.generate(
+      [
+        {
+          role: "user",
+          content: [
+            {
+              type: "image",
+              image: triggerData.file,
+            },
+            {
+              type: "text",
+              text: `View this image of a whiteboard diagram and convert it into CSV format.`,
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: csvData.csv,
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `Validate your last response containing the CSV code to add missing elements (text, lines, etc.) to the CSV. You should add new items to the original CSV results. The previous step missed some elements. Find them and add them. Return the CSV text.`,
+            },
+          ],
+        },
+      ],
+      {
+        maxSteps: 10,
+      }
+    );
+
+    return {
+      filename: csvData.filename,
+      csv: response.text,
     };
   },
 });
@@ -88,12 +133,15 @@ const csvToExcalidrawStep = new Step({
     filename: z.string(),
     csv: z.string(),
   }),
-  outputSchema,
+  outputSchema: z.object({
+    filename: z.string(),
+    excalidrawJson: z.object({}).passthrough(),
+  }),
   execute: async ({ context }) => {
-    const csvData = context?.getStepPayload<{
+    const csvData = context?.getStepResult<{
       filename: string;
       csv: string;
-    }>("imageToCsv");
+    }>("validateCsv");
 
     if (!csvData?.filename || !csvData?.csv) {
       throw new Error("Missing required CSV data in context");
@@ -230,6 +278,30 @@ const csvToExcalidrawStep = new Step({
       files: {},
     };
 
+    return {
+      filename: csvData.filename,
+      excalidrawJson,
+    };
+  },
+});
+
+const validateExcalidrawStep = new Step({
+  id: "validateExcalidraw",
+  inputSchema: z.object({
+    filename: z.string(),
+    excalidrawJson: z.object({}).passthrough(),
+  }),
+  outputSchema,
+  execute: async ({ context }) => {
+    const excalidrawData = context?.getStepResult<{
+      filename: string;
+      excalidrawJson: any;
+    }>("csvToExcalidraw");
+
+    if (!excalidrawData?.filename || !excalidrawData?.excalidrawJson) {
+      throw new Error("Missing required Excalidraw data in context");
+    }
+
     // Validate the JSON
     const validator = mastra.getAgent("excalidrawValidatorAgent");
     const messages: CoreMessage[] = [
@@ -242,59 +314,80 @@ const csvToExcalidrawStep = new Step({
           },
           {
             type: "text",
-            text: JSON.stringify(excalidrawJson),
+            text: JSON.stringify(excalidrawData.excalidrawJson),
           },
         ],
       },
     ];
-    const validationResponse = await validator.generate(messages);
 
-    // Try to parse the response
-    try {
-      let cleanedResponse = validationResponse.text;
+    let attempts = 0;
+    const maxAttempts = 3;
+    let lastError: Error | null = null;
 
-      // If the response is wrapped in quotes, remove them
-      if (cleanedResponse.startsWith('"') && cleanedResponse.endsWith('"')) {
-        cleanedResponse = cleanedResponse.slice(1, -1);
+    while (attempts < maxAttempts) {
+      attempts++;
+
+      const validationResponse = await validator.generate(messages, {
+        maxSteps: 10,
+      });
+
+      // Try to parse the response
+      try {
+        let cleanedResponse = validationResponse.text;
+
+        // If the response is wrapped in quotes, remove them
+        if (cleanedResponse.startsWith('"') && cleanedResponse.endsWith('"')) {
+          cleanedResponse = cleanedResponse.slice(1, -1);
+        }
+
+        // Replace escaped quotes and newlines
+        cleanedResponse = cleanedResponse
+          .replace(/\\"/g, '"')
+          .replace(/\\n/g, "");
+
+        const parsedJson = JSON.parse(cleanedResponse);
+
+        // If we successfully parsed the JSON, return it
+        return {
+          filename: excalidrawData.filename,
+          contents: parsedJson,
+        };
+      } catch (e) {
+        console.log(`Validation attempt ${attempts} failed with error:`, e);
+        lastError = e as Error;
+
+        // If we've reached the maximum number of attempts, break out of the loop
+        if (attempts >= maxAttempts) {
+          break;
+        }
+
+        // Add the response and error to the messages for the next attempt
+        messages.push({
+          role: "assistant",
+          content: [
+            {
+              type: "text",
+              text: validationResponse.text,
+            },
+          ],
+        });
+
+        messages.push({
+          role: "user",
+          content: [
+            {
+              type: "text",
+              text: `The previous Excalidraw JSON did not validate. Please fix it and return the valid JSON without any string quotes or new lines. Here is the error: ${e}`,
+            },
+          ],
+        });
       }
-
-      // Replace escaped quotes and newlines
-      cleanedResponse = cleanedResponse
-        .replace(/\\"/g, '"')
-        .replace(/\\n/g, "");
-
-      const parsedJson = JSON.parse(cleanedResponse);
-      return {
-        filename: csvData.filename,
-        contents: parsedJson,
-      };
-    } catch (e) {
-      console.log("error", e);
-      // Try the generate again.
-      messages.push({
-        role: "assistant",
-        content: [
-          {
-            type: "text",
-            text: validationResponse.text,
-          },
-        ],
-      });
-      messages.push({
-        role: "user",
-        content: [
-          {
-            type: "text",
-            text: `The previous Excalidraw JSON did not validate. Please fix it and return the valid JSON without any string quotes or new lines.`,
-          },
-        ],
-      });
-      const validationResponse2 = await validator.generate(messages);
-      return {
-        filename: csvData.filename,
-        contents: JSON.parse(validationResponse2.text),
-      };
     }
+
+    // If we've exhausted all attempts, throw an error
+    throw new Error(
+      `Failed to validate Excalidraw JSON after ${maxAttempts} attempts. Last error: ${lastError?.message}`
+    );
   },
 });
 
@@ -308,5 +401,7 @@ export const excalidrawConverterWorkflow = new Workflow({
 
 excalidrawConverterWorkflow
   .step(imageToCsvStep)
+  .then(validateCsvStep)
   .then(csvToExcalidrawStep)
+  .then(validateExcalidrawStep)
   .commit();

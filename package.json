@@ -14,12 +14,12 @@
   "dependencies": {
     "@ai-sdk/anthropic": "^1.1.6",
     "@ai-sdk/openai": "^1.1.9",
-    "@mastra/core": "^0.2.0-alpha.92",
+    "@mastra/core": "^0.4.2",
     "zod": "^3.24.1"
   },
   "devDependencies": {
     "@types/node": "^22.13.1",
-    "mastra": "^0.2.0-alpha.149",
+    "mastra": "^0.2.6",
     "tsx": "^4.19.2",
     "typescript": "^5.7.3"
   }
